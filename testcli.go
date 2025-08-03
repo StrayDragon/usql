@@ -65,7 +65,7 @@ type Test struct {
 }
 
 func cliTests() ([]Test, error) {
-	env := append(os.Environ(), "TERM=xterm-256color")
+	env := append(os.Environ(), "TERM=xterm-256color", "USQL_DANGEROUS_CONFIRM=off")
 	return []Test{
 		{
 			"complex/postgres",
