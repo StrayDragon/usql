@@ -43,6 +43,11 @@ func NewDefaultVars() *Variables {
 	if v, _ := Getenv(cmdNameUpper + "_SHOW_HOST_INFORMATION"); v != "" {
 		showHostInformation = v
 	}
+	// get dangerous command confirmation setting
+	dangerousConfirm := "on"
+	if v, _ := Getenv(cmdNameUpper + "_DANGEROUS_CONFIRM"); v != "" {
+		dangerousConfirm = v
+	}
 	// get NO_COLOR
 	noColor := false
 	if s, ok := Getenv("NO_COLOR"); ok {
@@ -88,6 +93,7 @@ func NewDefaultVars() *Variables {
 			"EDITOR":                editorCmd,
 			"QUIET":                 "off",
 			"ON_ERROR_STOP":         "off",
+			"DANGEROUS_CONFIRM":     dangerousConfirm,
 			// prompts
 			"PROMPT1": "%S%N%m%/%R%# ",
 			// syntax highlighting variables
@@ -155,7 +161,7 @@ func (v *Variables) Set(name, value string) error {
 		return err
 	}
 	switch name {
-	case "ON_ERROR_STOP", "QUIET":
+	case "ON_ERROR_STOP", "QUIET", "DANGEROUS_CONFIRM":
 		if value == "" {
 			value = "on"
 		} else {

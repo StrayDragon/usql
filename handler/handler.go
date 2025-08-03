@@ -440,6 +440,10 @@ func (h *Handler) Execute(ctx context.Context, w io.Writer, opt metacmd.Option, 
 	if err != nil {
 		return drivers.WrapErr(h.u.Driver, err)
 	}
+	// check for dangerous commands and confirm if needed
+	if err = h.confirmDangerousCommand(prefix, sqlstr); err != nil {
+		return err
+	}
 	// start a transaction if forced
 	if forceTrans {
 		if err = h.BeginTx(ctx, nil); err != nil {
@@ -1691,3 +1695,67 @@ var lineendRE = regexp.MustCompile(`(?:\r?\n)+$`)
 
 // helpQuitExitRE is a regexp to use to match help, quit, or exit messages.
 var helpQuitExitRE = regexp.MustCompile(`(?im)^+(` + strings.Join([]string{text.HelpPrefix, text.QuitPrefix, text.ExitPrefix}, "|") + `)\s*$`)
+
+// dangerousCommandsRE matches dangerous SQL commands that require confirmation
+var dangerousCommandsRE = regexp.MustCompile(`(?i)\b(DELETE|DROP|TRUNCATE|ALTER|UPDATE|CREATE\s+(INDEX|UNIQUE\s+INDEX)|GRANT|REVOKE|RENAME)\s+`)
+
+// confirmDangerousCommand checks if the SQL command is dangerous and prompts for confirmation
+func (h *Handler) confirmDangerousCommand(prefix, sqlstr string) error {
+	// check if dangerous command confirmation is enabled
+	if env.Get("DANGEROUS_CONFIRM") != "on" {
+		return nil
+	}
+
+	// check for supported database connections
+	if h.u == nil {
+		return nil
+	}
+
+	driver := strings.ToLower(h.u.Driver)
+	if !strings.Contains(driver, "mysql") && !strings.Contains(driver, "sqlite") {
+		if isDangerousCommand(prefix, sqlstr) {
+			fmt.Fprintf(h.l.Stderr(), "\nNOTE: Dangerous command confirmation is currently only supported for MySQL and SQLite databases.\nCurrent database: %s\n\n", h.u.Driver)
+		}
+		return nil
+	}
+
+	if !isDangerousCommand(prefix, sqlstr) {
+		return nil
+	}
+
+	return h.promptDangerousConfirmation(prefix, sqlstr)
+}
+
+// isDangerousCommand checks if the given SQL command is considered dangerous
+func isDangerousCommand(prefix, sqlstr string) bool {
+	fullSQL := strings.TrimSpace(prefix + " " + sqlstr)
+	if fullSQL == "" {
+		return false
+	}
+
+	return dangerousCommandsRE.MatchString(fullSQL)
+}
+
+// promptDangerousConfirmation prompts the user to confirm execution of a dangerous command
+func (h *Handler) promptDangerousConfirmation(prefix, sqlstr string) error {
+	fullSQL := strings.TrimSpace(prefix + " " + sqlstr)
+	fmt.Fprintf(h.l.Stderr(), "\nDangerous command detected:\n%s\n\n", fullSQL)
+
+	if !h.l.Interactive() {
+		return fmt.Errorf("command execution cancelled (non-interactive mode)")
+	}
+
+	h.l.Prompt("Are you sure you want to execute this command? [y/N]: ")
+
+	runes, err := h.l.Next()
+	if err != nil {
+		return fmt.Errorf("failed to read confirmation: %v", err)
+	}
+
+	response := strings.ToLower(strings.TrimSpace(string(runes)))
+	if response != "y" && response != "yes" {
+		return fmt.Errorf("command execution cancelled by user")
+	}
+
+	return nil
+}
